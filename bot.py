@@ -13,7 +13,7 @@ from telegram.ext import (
 
 # ─── НАСТРОЙКИ ────────────────────────────────────────────────
 "import os
-BOT_TOKEN = os.getenv("BOT_TOKEN")"  #
+BOT_TOKEN = os.getenv("7704620333:AAGbFgE6I05g2tkruHNCA76bQFoB_s4q3XA")"  #
 PAYMENT_PROVIDER_TOKEN = "ВАШ_PAYMENT_TOKEN"  # Токен платёжной системы
 
 logging.basicConfig(
