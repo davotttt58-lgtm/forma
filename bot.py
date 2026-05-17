@@ -3,7 +3,7 @@
 🏋️ ФОРМА — AI Персональный Тренер & Диетолог
 Полная версия: оплата + рефералы + админка + AI-чат + пуши + фото-анализ еды
 """
- 
+
 import os
 import json
 import base64
@@ -19,7 +19,7 @@ from telegram.ext import (
     MessageHandler, filters, ContextTypes, ConversationHandler,
     PreCheckoutQueryHandler
 )
- 
+
 # ══════════════════════════════════════════════════════════════
 # НАСТРОЙКИ
 # ══════════════════════════════════════════════════════════════
@@ -27,13 +27,13 @@ BOT_TOKEN         = os.getenv("BOT_TOKEN")
 YOOKASSA_TOKEN    = os.getenv("YOOKASSA_TOKEN")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")  # ключ Claude API
 ADMIN_IDS         = [int(x) for x in os.getenv("ADMIN_IDS", "0").split(",") if x]
- 
+
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
- 
+
 # ══════════════════════════════════════════════════════════════
 # СОСТОЯНИЯ ДИАЛОГА
 # ══════════════════════════════════════════════════════════════
@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
     SHOW_PLAN, NUTRITION_MENU, SUBSCRIPTION_MENU, PROFILE_MENU,
     ADMIN_MENU
 ) = range(9)
- 
+
 # ══════════════════════════════════════════════════════════════
 # ТАРИФЫ
 # ══════════════════════════════════════════════════════════════
@@ -73,7 +73,7 @@ PLANS = {
                      "✅ Приоритетные ответы AI", "✅ Разбор с куратором 1×/мес"],
     },
 }
- 
+
 # ══════════════════════════════════════════════════════════════
 # ТРЕНИРОВКИ И ПИТАНИЕ
 # ══════════════════════════════════════════════════════════════
@@ -121,63 +121,63 @@ WORKOUTS = {
         ],
     },
 }
- 
+
 NUTRITION_PLANS = {
     "похудение": """🥗 *План питания — Похудение*
- 
+
 📊 *Калорийность:* ~1600–1800 ккал/день
 💧 *Вода:* 2–2.5 литра в день
- 
+
 ━━━━━━━━━━━━━━━━━━
 🌅 *Завтрак (7:00–9:00)*
 • Овсянка на воде — 150г
 • 2 яйца варёных
 • Зелёный чай без сахара
- 
+
 🍎 *Перекус (11:00)*
 • Яблоко или груша
 • Горсть орехов (20г)
- 
+
 🌿 *Обед (13:00–14:00)*
 • Куриная грудка — 150г
 • Бурый рис или гречка — 100г (сухой)
 • Свежий овощной салат
- 
+
 🥜 *Перекус (16:00)*
 • Творог 0% — 150г
 • Ягоды — 50г
- 
+
 🌙 *Ужин (18:00–19:00)*
 • Рыба запечённая — 150г
 • Овощи на пару — 200г
 • Кефир — 200 мл
 ━━━━━━━━━━━━━━━━━━
 💡 *Совет:* Ужин не позже 19:00. Голод вечером — норма!""",
- 
+
     "набор массы": """🥩 *План питания — Набор массы*
- 
+
 📊 *Калорийность:* ~2800–3200 ккал/день
 💧 *Вода:* 3–3.5 литра в день
- 
+
 ━━━━━━━━━━━━━━━━━━
 🌅 *Завтрак (7:00)*
 • Овсянка на молоке — 200г
 • 4 яйца (2 целых + 2 белка)
 • Банан + стакан молока
- 
+
 🍎 *Перекус (10:00)*
 • Творог 5% — 200г с мёдом
 • Хлеб цельнозерновой — 2 куска
- 
+
 🌿 *Обед (13:00)*
 • Говядина/курица — 200г
 • Рис/гречка — 150г (сухой)
 • Салат с оливковым маслом
- 
+
 🥤 *После тренировки*
 • Протеиновый коктейль
 • Банан или рисовые хлебцы
- 
+
 🌙 *Ужин (19:00)*
 • Лосось — 200г
 • Картофель отварной — 200г
@@ -185,11 +185,11 @@ NUTRITION_PLANS = {
 ━━━━━━━━━━━━━━━━━━
 💡 *Совет:* Главное — профицит калорий 300–500 ккал/день""",
 }
- 
+
 # ══════════════════════════════════════════════════════════════
 # БАЗА ДАННЫХ
 # ══════════════════════════════════════════════════════════════
- 
+
 def init_db():
     conn = sqlite3.connect("forma.db")
     c = conn.cursor()
@@ -248,11 +248,27 @@ def init_db():
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    # UTM / источники трафика
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS utm_sources (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER UNIQUE,
+            utm_source TEXT,
+            utm_medium TEXT DEFAULT NULL,
+            utm_campaign TEXT DEFAULT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    # Миграция: добавляем utm_source в users
+    try:
+        c.execute("ALTER TABLE users ADD COLUMN utm_source TEXT DEFAULT NULL")
+    except Exception:
+        pass
     conn.commit()
     conn.close()
- 
+
 # ─── Хелперы БД ───────────────────────────────────────────────
- 
+
 def get_or_create_user(user_id, username, first_name):
     conn = sqlite3.connect("forma.db")
     c = conn.cursor()
@@ -263,7 +279,7 @@ def get_or_create_user(user_id, username, first_name):
                   (user_id, username, first_name, ref_code))
         conn.commit()
     conn.close()
- 
+
 def get_user(user_id):
     conn = sqlite3.connect("forma.db")
     c = conn.cursor()
@@ -275,7 +291,7 @@ def get_user(user_id):
     cols = ["user_id","username","first_name","plan","plan_expires","goal","level",
             "ref_code","referred_by","bonus_months","notify_time","calorie_goal","created_at"]
     return dict(zip(cols, row))
- 
+
 def set_user_plan(user_id, plan, months=1):
     conn = sqlite3.connect("forma.db")
     c = conn.cursor()
@@ -283,21 +299,21 @@ def set_user_plan(user_id, plan, months=1):
     c.execute("UPDATE users SET plan=?, plan_expires=? WHERE user_id=?", (plan, expires, user_id))
     conn.commit()
     conn.close()
- 
+
 def set_notify_time(user_id, notify_time):
     conn = sqlite3.connect("forma.db")
     c = conn.cursor()
     c.execute("UPDATE users SET notify_time=? WHERE user_id=?", (notify_time, user_id))
     conn.commit()
     conn.close()
- 
+
 def add_bonus_month(user_id):
     conn = sqlite3.connect("forma.db")
     c = conn.cursor()
     c.execute("UPDATE users SET bonus_months = bonus_months + 1 WHERE user_id=?", (user_id,))
     conn.commit()
     conn.close()
- 
+
 def get_referral_by_code(ref_code):
     conn = sqlite3.connect("forma.db")
     c = conn.cursor()
@@ -305,7 +321,7 @@ def get_referral_by_code(ref_code):
     row = c.fetchone()
     conn.close()
     return row[0] if row else None
- 
+
 def save_referral(referrer_id, referee_id):
     conn = sqlite3.connect("forma.db")
     c = conn.cursor()
@@ -313,7 +329,7 @@ def save_referral(referrer_id, referee_id):
     c.execute("INSERT INTO referrals (referrer_id, referee_id) VALUES (?,?)", (referrer_id, referee_id))
     conn.commit()
     conn.close()
- 
+
 def get_referral_count(user_id):
     conn = sqlite3.connect("forma.db")
     c = conn.cursor()
@@ -321,7 +337,7 @@ def get_referral_count(user_id):
     count = c.fetchone()[0]
     conn.close()
     return count
- 
+
 def log_payment(user_id, plan, amount, status):
     conn = sqlite3.connect("forma.db")
     c = conn.cursor()
@@ -329,10 +345,10 @@ def log_payment(user_id, plan, amount, status):
               (user_id, plan, amount, status))
     conn.commit()
     conn.close()
- 
+
 def has_ai_access(plan):
     return plan in ("pro", "result")
- 
+
 def get_ai_history(user_id, limit=10):
     conn = sqlite3.connect("forma.db")
     c = conn.cursor()
@@ -341,7 +357,7 @@ def get_ai_history(user_id, limit=10):
     rows = c.fetchall()
     conn.close()
     return list(reversed(rows))
- 
+
 def save_ai_message(user_id, role, content):
     conn = sqlite3.connect("forma.db")
     c = conn.cursor()
@@ -352,14 +368,14 @@ def save_ai_message(user_id, role, content):
               (user_id, user_id))
     conn.commit()
     conn.close()
- 
+
 def clear_ai_history(user_id):
     conn = sqlite3.connect("forma.db")
     c = conn.cursor()
     c.execute("DELETE FROM ai_chat_history WHERE user_id=?", (user_id,))
     conn.commit()
     conn.close()
- 
+
 def save_food_entry(user_id, food_name, calories, protein, fat, carbs):
     conn = sqlite3.connect("forma.db")
     c = conn.cursor()
@@ -367,7 +383,7 @@ def save_food_entry(user_id, food_name, calories, protein, fat, carbs):
               (user_id, food_name, int(calories), float(protein), float(fat), float(carbs)))
     conn.commit()
     conn.close()
- 
+
 def get_today_food(user_id):
     conn = sqlite3.connect("forma.db")
     c = conn.cursor()
@@ -376,7 +392,7 @@ def get_today_food(user_id):
     rows = c.fetchall()
     conn.close()
     return rows
- 
+
 def get_stats():
     conn = sqlite3.connect("forma.db")
     c = conn.cursor()
@@ -390,7 +406,7 @@ def get_stats():
     conn.close()
     return dict(total_users=total_users, paid_users=paid_users, revenue=revenue,
                 total_refs=total_refs, new_week=new_week, ai_msgs=ai_msgs, food_entries=food_entries)
- 
+
 def get_top_referrers():
     conn = sqlite3.connect("forma.db")
     c = conn.cursor()
@@ -400,7 +416,7 @@ def get_top_referrers():
     rows = c.fetchall()
     conn.close()
     return rows
- 
+
 def get_all_users_with_notify():
     conn = sqlite3.connect("forma.db")
     c = conn.cursor()
@@ -408,11 +424,73 @@ def get_all_users_with_notify():
     rows = c.fetchall()
     conn.close()
     return rows
- 
+
+# ─── UTM / Источники трафика ──────────────────────────────────
+
+def save_utm(user_id: int, utm_source: str, utm_medium: str = None, utm_campaign: str = None):
+    """Сохраняем источник перехода для нового пользователя."""
+    conn = sqlite3.connect("forma.db")
+    c = conn.cursor()
+    try:
+        c.execute(
+            "INSERT OR IGNORE INTO utm_sources (user_id, utm_source, utm_medium, utm_campaign) VALUES (?,?,?,?)",
+            (user_id, utm_source, utm_medium, utm_campaign)
+        )
+        c.execute("UPDATE users SET utm_source=? WHERE user_id=?", (utm_source, user_id))
+        conn.commit()
+    except Exception:
+        pass
+    conn.close()
+
+def get_utm_stats() -> list:
+    """Статистика по источникам: переходы, оплаты, выручка."""
+    conn = sqlite3.connect("forma.db")
+    c = conn.cursor()
+    c.execute("""
+        SELECT
+            u.utm_source,
+            COUNT(DISTINCT u.user_id)                          AS visits,
+            COUNT(DISTINCT CASE WHEN us.plan NOT IN ('free','start','') AND us.plan IS NOT NULL
+                                THEN u.user_id END)            AS paid,
+            COALESCE(SUM(p.amount), 0)                         AS revenue
+        FROM utm_sources u
+        LEFT JOIN users us  ON us.user_id = u.user_id
+        LEFT JOIN payments p ON p.user_id = u.user_id AND p.status='success'
+        GROUP BY u.utm_source
+        ORDER BY visits DESC
+    """)
+    rows = c.fetchall()
+    conn.close()
+    return rows  # [(source, visits, paid, revenue), ...]
+
+def get_utm_daily(utm_source: str, days: int = 7) -> list:
+    """Динамика конкретного источника по дням."""
+    conn = sqlite3.connect("forma.db")
+    c = conn.cursor()
+    c.execute("""
+        SELECT date(u.created_at), COUNT(*)
+        FROM utm_sources u
+        WHERE u.utm_source=? AND u.created_at >= date('now', ?)
+        GROUP BY date(u.created_at)
+        ORDER BY 1 DESC
+    """, (utm_source, f"-{days} days"))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+def get_all_utm_sources() -> list:
+    """Список всех уникальных источников."""
+    conn = sqlite3.connect("forma.db")
+    c = conn.cursor()
+    c.execute("SELECT DISTINCT utm_source FROM utm_sources ORDER BY utm_source")
+    rows = [r[0] for r in c.fetchall()]
+    conn.close()
+    return rows
+
 # ══════════════════════════════════════════════════════════════
 # CLAUDE API
 # ══════════════════════════════════════════════════════════════
- 
+
 async def call_claude(messages: list, system: str = "", max_tokens: int = 800) -> str:
     if not ANTHROPIC_API_KEY:
         return "⚠️ AI-тренер временно недоступен. Администратор должен добавить ANTHROPIC_API_KEY."
@@ -432,7 +510,7 @@ async def call_claude(messages: list, system: str = "", max_tokens: int = 800) -
     except Exception as e:
         logger.error(f"Claude API error: {e}")
         return "⚠️ Не удалось получить ответ от AI. Попробуй чуть позже."
- 
+
 async def call_claude_vision(image_bytes: bytes, prompt: str) -> str:
     if not ANTHROPIC_API_KEY:
         return "⚠️ AI-анализ недоступен. Нужен ANTHROPIC_API_KEY."
@@ -456,32 +534,46 @@ async def call_claude_vision(image_bytes: bytes, prompt: str) -> str:
     except Exception as e:
         logger.error(f"Claude Vision error: {e}")
         return "⚠️ Не удалось проанализировать фото. Попробуй ещё раз."
- 
+
 # ══════════════════════════════════════════════════════════════
 # СТАРТ
 # ══════════════════════════════════════════════════════════════
- 
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     get_or_create_user(user.id, user.username, user.first_name)
- 
+
+    utm_source = None
     if context.args:
-        ref_code = context.args[0]
-        referrer_id = get_referral_by_code(ref_code)
-        db_user = get_user(user.id)
-        if referrer_id and referrer_id != user.id and not db_user.get("referred_by"):
-            save_referral(referrer_id, user.id)
-            add_bonus_month(referrer_id)
-            try:
-                await context.bot.send_message(
-                    referrer_id,
-                    "🎉 По твоей реферальной ссылке зарегистрировался новый пользователь!\n"
-                    "✅ Тебе начислен *+1 месяц* бесплатно!",
-                    parse_mode="Markdown"
-                )
-            except Exception:
-                pass
- 
+        param = context.args[0]  # например: pub_fitness, ref_abc123, utm_vk_stories
+
+        # ── UTM-метка (начинается с utm_ или содержит разделитель __) ──
+        if param.startswith("utm_") or "__" in param:
+            # Формат: utm_SOURCE или SOURCE__MEDIUM__CAMPAIGN
+            parts = param.replace("utm_", "").split("__")
+            utm_source   = parts[0] if len(parts) > 0 else param
+            utm_medium   = parts[1] if len(parts) > 1 else None
+            utm_campaign = parts[2] if len(parts) > 2 else None
+            save_utm(user.id, utm_source, utm_medium, utm_campaign)
+
+        # ── Реферальный код ──────────────────────────────────────────
+        else:
+            ref_code = param
+            referrer_id = get_referral_by_code(ref_code)
+            db_user = get_user(user.id)
+            if referrer_id and referrer_id != user.id and not db_user.get("referred_by"):
+                save_referral(referrer_id, user.id)
+                add_bonus_month(referrer_id)
+                try:
+                    await context.bot.send_message(
+                        referrer_id,
+                        "🎉 По твоей реферальной ссылке зарегистрировался новый пользователь!\n"
+                        "✅ Тебе начислен *+1 месяц* бесплатно!",
+                        parse_mode="Markdown"
+                    )
+                except Exception:
+                    pass
+
     welcome_text = (
         f"👋 Привет, *{user.first_name}*!\n\n"
         "Я — *ФОРМА*, твой персональный AI-тренер и диетолог 💪\n\n"
@@ -507,22 +599,22 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     if user.id in ADMIN_IDS:
         keyboard.append([InlineKeyboardButton("🔐 Админ-панель", callback_data="admin_menu")])
- 
+
     await update.message.reply_text(
         welcome_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
     )
     return MAIN_MENU
- 
+
 # ══════════════════════════════════════════════════════════════
 # 🤖 AI-ЧАТ С ПАМЯТЬЮ
 # ══════════════════════════════════════════════════════════════
- 
+
 async def ai_chat_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user = update.effective_user
     db_user = get_user(user.id)
- 
+
     if not has_ai_access(db_user.get("plan", "free")):
         text = (
             "🤖 *AI-тренер с памятью*\n\n"
@@ -557,10 +649,10 @@ async def ai_chat_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("← Назад", callback_data="back_main")],
         ]
         context.user_data["ai_mode"] = True
- 
+
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     return MAIN_MENU
- 
+
 async def ai_clear_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -571,12 +663,12 @@ async def ai_clear_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("← Назад", callback_data="ai_chat_info")]])
     )
     return MAIN_MENU
- 
+
 async def process_ai_message(user_id: int, user_text: str, db_user: dict) -> str:
     goal  = db_user.get("goal") or "не указана"
     level = db_user.get("level") or "не указан"
     plan  = db_user.get("plan") or "free"
- 
+
     # Контекст питания за сегодня
     today_food = get_today_food(user_id)
     food_context = ""
@@ -584,7 +676,7 @@ async def process_ai_message(user_id: int, user_text: str, db_user: dict) -> str
         total_cal = sum(f[1] for f in today_food)
         names = ", ".join(f[0] for f in today_food)
         food_context = f"\nСегодня пользователь съел: {names} (итого {total_cal} ккал)."
- 
+
     system_prompt = (
         "Ты персональный AI-тренер и диетолог приложения ФОРМА. "
         "Общайся на русском, дружелюбно и конкретно.\n\n"
@@ -599,20 +691,20 @@ async def process_ai_message(user_id: int, user_text: str, db_user: dict) -> str
         "3. Отвечай кратко (3-6 предложений), используй эмодзи\n"
         "4. Помни контекст всего диалога"
     )
- 
+
     history = get_ai_history(user_id)
     messages = [{"role": r, "content": c} for r, c in history]
     messages.append({"role": "user", "content": user_text})
- 
+
     save_ai_message(user_id, "user", user_text)
     response = await call_claude(messages, system=system_prompt)
     save_ai_message(user_id, "assistant", response)
     return response
- 
+
 # ══════════════════════════════════════════════════════════════
 # ⏰ УМНЫЕ PUSH-УВЕДОМЛЕНИЯ
 # ══════════════════════════════════════════════════════════════
- 
+
 async def notify_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -620,7 +712,7 @@ async def notify_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     current = db_user.get("notify_time")
     labels = {"morning": "☀️ Утро (8:00)", "afternoon": "🌤 День (13:00)", "evening": "🌙 Вечер (19:00)"}
     current_text = labels.get(current, "не настроены")
- 
+
     text = (
         "⏰ *Умные уведомления о тренировках*\n\n"
         f"Сейчас: *{current_text}*\n\n"
@@ -637,7 +729,7 @@ async def notify_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     return MAIN_MENU
- 
+
 async def set_notify(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -650,7 +742,7 @@ async def set_notify(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
     notify_key, label = time_map.get(action, (None, "отключены"))
     set_notify_time(update.effective_user.id, notify_key)
- 
+
     text = (
         f"✅ *Уведомления настроены!*\n\nВремя: *{label}*\n\n"
         "Каждый день я буду напоминать тебе о тренировке 💪"
@@ -659,7 +751,7 @@ async def set_notify(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton("← Назад", callback_data="notify_menu")]]
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     return MAIN_MENU
- 
+
 async def mark_workout_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer("✅ Тренировка засчитана!")
@@ -670,7 +762,7 @@ async def mark_workout_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
     return MAIN_MENU
- 
+
 async def send_morning_reminders(app):
     for user_id, first_name, notify_time, goal in get_all_users_with_notify():
         if notify_time != "morning":
@@ -688,7 +780,7 @@ async def send_morning_reminders(app):
             )
         except Exception:
             pass
- 
+
 async def send_afternoon_reminders(app):
     for user_id, first_name, notify_time, goal in get_all_users_with_notify():
         if notify_time != "afternoon":
@@ -706,7 +798,7 @@ async def send_afternoon_reminders(app):
             )
         except Exception:
             pass
- 
+
 async def send_evening_reminders(app):
     for user_id, first_name, notify_time, goal in get_all_users_with_notify():
         if notify_time != "evening":
@@ -723,7 +815,7 @@ async def send_evening_reminders(app):
             )
         except Exception:
             pass
- 
+
 async def send_late_reminders(app):
     """21:00 — напоминание тем кто ещё не отметил тренировку."""
     for user_id, first_name, notify_time, goal in get_all_users_with_notify():
@@ -742,17 +834,17 @@ async def send_late_reminders(app):
             )
         except Exception:
             pass
- 
+
 # ══════════════════════════════════════════════════════════════
 # 📸 ФОТО-АНАЛИЗ ЕДЫ
 # ══════════════════════════════════════════════════════════════
- 
+
 async def food_diary_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user = update.effective_user
     db_user = get_user(user.id)
- 
+
     if not has_ai_access(db_user.get("plan", "free")):
         text = (
             "📸 *Фото-анализ еды*\n\n"
@@ -770,10 +862,10 @@ async def food_diary_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return MAIN_MENU
- 
+
     today_food = get_today_food(user.id)
     calorie_goal = db_user.get("calorie_goal") or 1800
- 
+
     if today_food:
         total_cal = sum(f[1] for f in today_food)
         total_p = sum(f[2] for f in today_food)
@@ -790,7 +882,7 @@ async def food_diary_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     else:
         diary_text = "\n_Сегодня записей нет. Сфотографируй первое блюдо!_"
- 
+
     text = (
         f"📸 *Дневник питания*{diary_text}\n\n"
         "━━━━━━━━━━━━━━━━━━\n"
@@ -800,14 +892,14 @@ async def food_diary_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["food_photo_mode"] = True
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     return MAIN_MENU
- 
+
 async def handle_food_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     db_user = get_user(user.id)
     if not db_user:
         get_or_create_user(user.id, user.username, user.first_name)
         db_user = get_user(user.id)
- 
+
     if not has_ai_access(db_user.get("plan", "free")):
         await update.message.reply_text(
             "📸 Фото-анализ еды доступен на тарифе *Прокачка* (499 ₽/мес)\n\nХочешь подключить?",
@@ -817,14 +909,14 @@ async def handle_food_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
         return
- 
+
     msg = await update.message.reply_text("🔍 Анализирую блюдо... секунду!")
- 
+
     try:
         photo = update.message.photo[-1]
         tg_file = await context.bot.get_file(photo.file_id)
         image_bytes = bytes(await tg_file.download_as_bytearray())
- 
+
         prompt = (
             "Проанализируй блюдо на фото. Ответь СТРОГО в этом формате (без лишнего текста):\n\n"
             "БЛЮДО: [название на русском]\n"
@@ -836,36 +928,36 @@ async def handle_food_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Если на фото не еда — напиши только: НЕ_ЕДА"
         )
         result = await call_claude_vision(image_bytes, prompt)
- 
+
         if "НЕ_ЕДА" in result:
             await msg.edit_text("🤔 Не вижу еду на фото. Попробуй сфотографировать блюдо крупнее!")
             return
- 
+
         # Парсинг ответа
         food_data = {}
         for line in result.strip().split("\n"):
             if ":" in line:
                 k, v = line.split(":", 1)
                 food_data[k.strip()] = v.strip()
- 
+
         def parse_num(s):
             return ''.join(c for c in s if c.isdigit() or c == '.')
- 
+
         food_name = food_data.get("БЛЮДО", "Блюдо")
         calories  = int(parse_num(food_data.get("КАЛОРИИ", "0")) or 0)
         protein   = float(parse_num(food_data.get("БЕЛКИ", "0")) or 0)
         fat       = float(parse_num(food_data.get("ЖИРЫ", "0")) or 0)
         carbs     = float(parse_num(food_data.get("УГЛЕВОДЫ", "0")) or 0)
         comment   = food_data.get("КОММЕНТАРИЙ", "")
- 
+
         save_food_entry(user.id, food_name, calories, protein, fat, carbs)
- 
+
         today_food    = get_today_food(user.id)
         total_cal     = sum(f[1] for f in today_food)
         calorie_goal  = db_user.get("calorie_goal") or 1800
         remaining     = calorie_goal - total_cal
         day_status    = "🟢 В норме" if remaining >= 0 else "🔴 Превышение"
- 
+
         response_text = (
             f"✅ *{food_name}*\n\n"
             f"🔥 Калории: *{calories} ккал*\n"
@@ -883,15 +975,15 @@ async def handle_food_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🏠 Меню", callback_data="back_main")],
         ]
         await msg.edit_text(response_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
- 
+
     except Exception as e:
         logger.error(f"Food photo error: {e}")
         await msg.edit_text("⚠️ Не удалось проанализировать фото. Попробуй ещё раз.")
- 
+
 # ══════════════════════════════════════════════════════════════
 # ТРЕНИРОВКИ / ПИТАНИЕ
 # ══════════════════════════════════════════════════════════════
- 
+
 async def free_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -904,7 +996,7 @@ async def free_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     return CHOOSE_GOAL
- 
+
 async def choose_goal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -921,7 +1013,7 @@ async def choose_goal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
     )
     return CHOOSE_LEVEL
- 
+
 async def choose_level(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -939,7 +1031,7 @@ async def choose_level(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
     )
     return CHOOSE_PLACE
- 
+
 async def show_workout_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -949,7 +1041,7 @@ async def show_workout_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     workouts = WORKOUTS.get(goal, WORKOUTS["поддержание"]).get(level, WORKOUTS["поддержание"]["beginner"])
     place_emoji = {"home": "🏠", "gym": "🏋️", "street": "🌳"}.get(place, "🏠")
     place_name  = {"home": "Дома", "gym": "В зале", "street": "На улице"}.get(place, "Дома")
- 
+
     plan_text = (
         f"🎉 *Твой персональный план на 7 дней готов!*\n\n"
         f"🎯 Цель: *{goal.capitalize()}* | {place_emoji} *{place_name}*\n"
@@ -970,7 +1062,7 @@ async def show_workout_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await query.edit_message_text(plan_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     return SHOW_PLAN
- 
+
 async def nutrition_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -983,18 +1075,18 @@ async def nutrition_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await query.edit_message_text(plan, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     return NUTRITION_MENU
- 
+
 # ══════════════════════════════════════════════════════════════
 # ТАРИФЫ И ОПЛАТА
 # ══════════════════════════════════════════════════════════════
- 
+
 async def show_plans(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     db_user = get_user(update.effective_user.id)
     has_discount = bool(db_user and db_user.get("referred_by"))
     discount_text = "\n🎁 *У тебя есть скидка 20%* на первую оплату!" if has_discount else ""
- 
+
     text = (
         f"💳 *Выбери свой тариф:*{discount_text}\n\n"
         "━━━━━━━━━━━━━━━━━━\n"
@@ -1013,7 +1105,7 @@ async def show_plans(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     return SUBSCRIPTION_MENU
- 
+
 async def plan_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -1030,7 +1122,7 @@ async def plan_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
         price_text = f"*{price} ₽/месяц*" if price > 0 else "*Бесплатно*"
         context.user_data["discounted_price"] = price
     context.user_data["selected_plan"] = plan_key
- 
+
     features_text = "\n".join(plan["features"])
     text = f"*{plan['name']}*\n💰 {price_text}\n\n{features_text}\n\n━━━━━━━━━━━━━━━━━━\nВыбери этот тариф?"
     keyboard = []
@@ -1041,7 +1133,7 @@ async def plan_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard.append([InlineKeyboardButton("← К тарифам", callback_data="show_plans")])
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     return SUBSCRIPTION_MENU
- 
+
 async def activate_free(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -1056,86 +1148,35 @@ async def activate_free(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
     )
     return MAIN_MENU
- 
+
 async def process_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query    = update.callback_query
+    query = update.callback_query
     await query.answer()
     plan_key = query.data.replace("pay_", "")
-    plan     = PLANS.get(plan_key, PLANS["forma"])
-    price    = context.user_data.get("discounted_price", plan["price"])
-
+    plan = PLANS.get(plan_key, PLANS["forma"])
+    price = context.user_data.get("discounted_price", plan["price"])
     if not YOOKASSA_TOKEN:
         await query.edit_message_text(
             "⚠️ Платёжная система не настроена.\nДобавьте YOOKASSA_TOKEN в переменные Railway.",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("← Назад", callback_data="show_plans")]])
         )
         return SUBSCRIPTION_MENU
-
-    # ── provider_data: чек по 54-ФЗ ──────────────────────────
-    # ВАЖНО: сумма в items.amount.value — в РУБЛЯХ (не в копейках!)
-    # Сумма в LabeledPrice — в КОПЕЙКАХ
-    import json
-    provider_data = json.dumps({
-        "receipt": {
-            "tax_system_code": 1,          # ОСН (1), УСН доход (2), УСН доход-расход (3), ЕНВД (4), ЕСН (5), ПСН (6)
-            "items": [
-                {
-                    "description":   f"Подписка ФОРМА — {plan['name']} на 30 дней",
-                    "quantity":      "1.00",
-                    "amount": {
-                        "value":    str(price),    # ← рубли (не копейки!)
-                        "currency": "RUB"
-                    },
-                    "vat_code":        1,           # 1 = без НДС
-                    "payment_mode":    "full_payment",
-                    "payment_subject": "service",   # для цифровых услуг/подписок
-                }
-            ]
-        }
-    }, ensure_ascii=False)
-
-    try:
-        await query.message.delete()
-    except Exception:
-        pass
-
-    try:
-        await context.bot.send_invoice(
-            chat_id        = query.from_user.id,
-            title          = f"ФОРМА — {plan['name']}",
-            description    = plan["desc"],
-            payload        = f"plan_{plan_key}_{query.from_user.id}",
-            provider_token = YOOKASSA_TOKEN,
-            currency       = "RUB",
-            prices         = [LabeledPrice(plan["name"], price * 100)],  # ← копейки!
-            start_parameter= "pay",
-
-            # Email покупателя — для отправки фискального чека
-            # Пользователь вводит email прямо на форме оплаты
-            need_email               = True,
-            send_email_to_provider   = True,
-
-            # Телефон — раскомментируй если нужен вместо email
-            # need_phone_number            = True,
-            # send_phone_number_to_provider= True,
-
-            need_name             = False,
-            need_shipping_address = False,
-            is_flexible           = False,
-
-            provider_data = provider_data,  # ← чек 54-ФЗ
-        )
-    except Exception as e:
-        logger.error(f"send_invoice error: {e}")
-        await context.bot.send_message(
-            chat_id = query.from_user.id,
-            text    = f"⚠️ Ошибка создания счёта: {str(e)[:200]}\n\nНапиши @FormaSupport"
-        )
+    await query.message.delete()
+    await context.bot.send_invoice(
+        chat_id=query.from_user.id,
+        title=f"Тариф {plan['name']}",
+        description=plan["desc"],
+        payload=f"plan_{plan_key}_{query.from_user.id}",
+        provider_token=YOOKASSA_TOKEN,
+        currency="RUB",
+        prices=[LabeledPrice(plan["name"], price * 100)],
+        start_parameter="pay",
+    )
     return SUBSCRIPTION_MENU
- 
+
 async def pre_checkout(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.pre_checkout_query.answer(ok=True)
- 
+
 async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     payment = update.message.successful_payment
@@ -1144,7 +1185,7 @@ async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE)
     amount = payment.total_amount // 100
     set_user_plan(user.id, plan_key, months=1)
     log_payment(user.id, plan_key, amount, "success")
- 
+
     db_user = get_user(user.id)
     if db_user and db_user.get("referred_by"):
         referrer_id = db_user["referred_by"]
@@ -1167,7 +1208,7 @@ async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 pass
         else:
             conn.close()
- 
+
     plan = PLANS.get(plan_key, PLANS["forma"])
     extra = "\n\n🤖 AI-тренер и 📸 фото-анализ еды теперь доступны!" if plan_key in ("pro","result") else ""
     await update.message.reply_text(
@@ -1176,11 +1217,11 @@ async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE)
         f"💰 Списано: {amount} ₽{extra}",
         parse_mode="Markdown"
     )
- 
+
 # ══════════════════════════════════════════════════════════════
 # РЕФЕРАЛЫ / ПРОФИЛЬ / О БОТЕ / МЕНЮ
 # ══════════════════════════════════════════════════════════════
- 
+
 async def referral_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -1189,7 +1230,7 @@ async def referral_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ref_count = get_referral_count(user.id)
     bot_username = (await context.bot.get_me()).username
     ref_link = f"https://t.me/{bot_username}?start={db_user['ref_code']}"
- 
+
     text = (
         "👥 *Реферальная программа ФОРМА*\n\n"
         "━━━━━━━━━━━━━━━━━━\n"
@@ -1208,7 +1249,7 @@ async def referral_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     return MAIN_MENU
- 
+
 async def my_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -1217,12 +1258,12 @@ async def my_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ref_count = get_referral_count(user.id)
     bot_username = (await context.bot.get_me()).username
     ref_link = f"https://t.me/{bot_username}?start={db_user['ref_code']}"
- 
+
     plan_names   = {"free":"🆓 Старт","start":"🆓 Старт","forma":"💪 Форма","pro":"🔥 Прокачка","result":"🏆 Результат"}
     notify_names = {"morning":"☀️ 8:00","afternoon":"🌤 13:00","evening":"🌙 19:00",None:"не настроены"}
     today_food   = get_today_food(user.id)
     ai_msgs      = len(get_ai_history(user.id))
- 
+
     text = (
         f"👤 *Профиль — {user.first_name}*\n\n"
         f"🎯 Цель: *{(db_user.get('goal') or 'не выбрана').capitalize()}*\n"
@@ -1247,7 +1288,7 @@ async def my_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     return PROFILE_MENU
- 
+
 async def about(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -1265,7 +1306,7 @@ async def about(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton("← Назад", callback_data="back_main")]]
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     return MAIN_MENU
- 
+
 async def back_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -1286,11 +1327,11 @@ async def back_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard.append([InlineKeyboardButton("🔐 Админ-панель", callback_data="admin_menu")])
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     return MAIN_MENU
- 
+
 # ══════════════════════════════════════════════════════════════
 # АДМИН-ПАНЕЛЬ
 # ══════════════════════════════════════════════════════════════
- 
+
 async def admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -1313,12 +1354,13 @@ async def admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("📊 Статистика", callback_data="admin_stats"),
          InlineKeyboardButton("👥 Топ рефереры", callback_data="admin_referrers")],
+        [InlineKeyboardButton("📈 Источники трафика", callback_data="admin_utm")],
         [InlineKeyboardButton("📢 Рассылка", callback_data="admin_broadcast")],
         [InlineKeyboardButton("← Главное меню", callback_data="back_main")],
     ]
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     return ADMIN_MENU
- 
+
 async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -1342,7 +1384,7 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton("← Назад", callback_data="admin_menu")]]
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     return ADMIN_MENU
- 
+
 async def admin_referrers(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -1354,7 +1396,7 @@ async def admin_referrers(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton("← Назад", callback_data="admin_menu")]]
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     return ADMIN_MENU
- 
+
 async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -1367,15 +1409,135 @@ async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
     )
     return ADMIN_MENU
- 
+
+async def admin_utm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Сводная таблица по всем источникам трафика."""
+    query = update.callback_query
+    await query.answer()
+    if update.effective_user.id not in ADMIN_IDS:
+        return ADMIN_MENU
+
+    rows = get_utm_stats()
+
+    if not rows:
+        text = (
+            "📈 *Источники трафика*\n\n"
+            "Данных пока нет.\n\n"
+            "*Как отслеживать источники:*\n"
+            "Для каждого паблика используй отдельную ссылку:\n\n"
+            "`t.me/твойбот?start=utm_vk_fitness`\n"
+            "`t.me/твойбот?start=utm_tg_sport`\n"
+            "`t.me/твойбот?start=utm_inst_stories`\n\n"
+            "Формат: `utm_ИСТОЧНИК` или `utm_ИСТОЧНИК__МЕДИУМ__КАМПАНИЯ`"
+        )
+        keyboard = [[InlineKeyboardButton("← Назад", callback_data="admin_menu")]]
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        return ADMIN_MENU
+
+    # Считаем итоги
+    total_visits  = sum(r[1] for r in rows)
+    total_paid    = sum(r[2] for r in rows)
+    total_revenue = sum(r[3] for r in rows)
+
+    lines = ""
+    for source, visits, paid, revenue in rows:
+        conv = f"{paid/visits*100:.0f}%" if visits > 0 else "0%"
+        lines += f"• *{source}*\n  👥 {visits} | 💳 {paid} | 💰 {revenue}₽ | конв. {conv}\n\n"
+
+    text = (
+        "📈 *Источники трафика*\n\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        f"*Итого:* {total_visits} переходов | {total_paid} оплат | {total_revenue}₽\n"
+        "━━━━━━━━━━━━━━━━━━\n\n"
+        f"{lines}"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "_👥 переходы | 💳 оплаты | 💰 выручка | конв. конверсия_"
+    )
+
+    # Кнопки для детализации по каждому источнику
+    keyboard = []
+    for source, visits, paid, revenue in rows[:8]:  # максимум 8 кнопок
+        keyboard.append([InlineKeyboardButton(
+            f"🔍 {source} ({visits} чел.)",
+            callback_data=f"utm_detail__{source}"
+        )])
+    keyboard.append([InlineKeyboardButton("← Назад", callback_data="admin_menu")])
+
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    return ADMIN_MENU
+
+async def admin_utm_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Детальная статистика по одному источнику."""
+    query = update.callback_query
+    await query.answer()
+    if update.effective_user.id not in ADMIN_IDS:
+        return ADMIN_MENU
+
+    utm_source = query.data.replace("utm_detail__", "")
+    daily = get_utm_daily(utm_source, days=14)
+
+    # Сводка по этому источнику
+    conn = sqlite3.connect("forma.db")
+    c = conn.cursor()
+    c.execute("""
+        SELECT COUNT(DISTINCT u.user_id),
+               COUNT(DISTINCT CASE WHEN us.plan NOT IN ('free','start','') AND us.plan IS NOT NULL
+                                   THEN u.user_id END),
+               COALESCE(SUM(p.amount), 0)
+        FROM utm_sources u
+        LEFT JOIN users us  ON us.user_id = u.user_id
+        LEFT JOIN payments p ON p.user_id = u.user_id AND p.status='success'
+        WHERE u.utm_source=?
+    """, (utm_source,))
+    total_v, total_p, total_r = c.fetchone()
+
+    # По тарифам из этого источника
+    c.execute("""
+        SELECT us.plan, COUNT(*) FROM utm_sources u
+        JOIN users us ON us.user_id = u.user_id
+        WHERE u.utm_source=? GROUP BY us.plan
+    """, (utm_source,))
+    plan_rows = c.fetchall()
+    conn.close()
+
+    conv = f"{total_p/total_v*100:.1f}%" if total_v > 0 else "0%"
+    avg_rev = f"{total_r//total_p}" if total_p > 0 else "0"
+
+    plan_text = "".join(f"  • {p}: {cnt}\n" for p, cnt in plan_rows)
+
+    # Динамика по дням
+    if daily:
+        daily_text = "\n".join(f"  {date}: {cnt} чел." for date, cnt in daily)
+    else:
+        daily_text = "  нет данных"
+
+    text = (
+        f"🔍 *Источник: {utm_source}*\n\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        f"👥 Всего переходов: *{total_v}*\n"
+        f"💳 Оплатили: *{total_p}*\n"
+        f"💰 Выручка: *{total_r} ₽*\n"
+        f"📊 Конверсия: *{conv}*\n"
+        f"💵 Средний чек: *{avg_rev} ₽*\n\n"
+        f"*По тарифам:*\n{plan_text}\n"
+        f"*Динамика (14 дней):*\n{daily_text}\n"
+        "━━━━━━━━━━━━━━━━━━"
+    )
+    keyboard = [
+        [InlineKeyboardButton("← К источникам", callback_data="admin_utm")],
+        [InlineKeyboardButton("← Админ-панель", callback_data="admin_menu")],
+    ]
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    return ADMIN_MENU
+
 # ══════════════════════════════════════════════════════════════
 # ОБРАБОТКА ТЕКСТОВЫХ СООБЩЕНИЙ
 # ══════════════════════════════════════════════════════════════
- 
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     text = update.message.text
- 
+
     # Рассылка от админа
     if context.user_data.get("awaiting_broadcast") and user.id in ADMIN_IDS:
         context.user_data["awaiting_broadcast"] = False
@@ -1393,12 +1555,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 failed += 1
         await update.message.reply_text(f"📢 Рассылка завершена!\n✅ Отправлено: {sent}\n❌ Ошибок: {failed}")
         return
- 
+
     db_user = get_user(user.id)
     if not db_user:
         get_or_create_user(user.id, user.username, user.first_name)
         db_user = get_user(user.id)
- 
+
     # ── AI-чат для платных тарифов ────────────────────────────
     if has_ai_access(db_user.get("plan", "free")):
         thinking = await update.message.reply_text("🤖 Думаю...")
@@ -1409,7 +1571,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         await thinking.edit_text(response, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
- 
+
     # ── Статические ответы для бесплатных ────────────────────
     text_lower = text.lower()
     static = {
@@ -1429,15 +1591,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🏋️ Мой план тренировок", callback_data="free_start")],
     ]
     await update.message.reply_text(reply, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
- 
+
 # ══════════════════════════════════════════════════════════════
 # MAIN
 # ══════════════════════════════════════════════════════════════
- 
+
 def main():
     init_db()
     app = Application.builder().token(BOT_TOKEN).build()
- 
+
     # Планировщик уведомлений (МСК timezone)
     scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
     scheduler.add_job(send_morning_reminders,   "cron", hour=8,  minute=0,  args=[app])
@@ -1445,7 +1607,7 @@ def main():
     scheduler.add_job(send_evening_reminders,   "cron", hour=19, minute=0,  args=[app])
     scheduler.add_job(send_late_reminders,      "cron", hour=21, minute=0,  args=[app])
     scheduler.start()
- 
+
     # Единый список колбэков для всех состояний
     cbs = [
         CallbackQueryHandler(free_start,        pattern="^free_start$"),
@@ -1459,6 +1621,8 @@ def main():
         CallbackQueryHandler(admin_stats,       pattern="^admin_stats$"),
         CallbackQueryHandler(admin_referrers,   pattern="^admin_referrers$"),
         CallbackQueryHandler(admin_broadcast,   pattern="^admin_broadcast$"),
+        CallbackQueryHandler(admin_utm,         pattern="^admin_utm$"),
+        CallbackQueryHandler(admin_utm_detail,  pattern="^utm_detail__"),
         CallbackQueryHandler(ai_chat_info,      pattern="^ai_chat_info$"),
         CallbackQueryHandler(ai_clear_history,  pattern="^ai_clear_history$"),
         CallbackQueryHandler(food_diary_menu,   pattern="^food_diary_menu$"),
@@ -1469,7 +1633,7 @@ def main():
         CallbackQueryHandler(process_payment,   pattern="^pay_"),
         CallbackQueryHandler(nutrition_plan,    pattern="^nutrition_plan$"),
     ]
- 
+
     conv = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
@@ -1485,15 +1649,15 @@ def main():
         },
         fallbacks=[CommandHandler("start", start)],
     )
- 
+
     app.add_handler(conv)
     app.add_handler(PreCheckoutQueryHandler(pre_checkout))
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment))
     app.add_handler(MessageHandler(filters.PHOTO, handle_food_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
- 
+
     print("🏋️ ФОРМА Bot запущен! AI-чат + умные пуши + фото-анализ еды активны.")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
- 
+
 if __name__ == "__main__":
     main()
